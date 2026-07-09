@@ -1,0 +1,345 @@
+import sys
+import pygame
+import pygame_menu
+from random import choice
+class Naval:
+    def __init__(self):
+        pygame.init()
+        #добавили переменные для отслеживания текущей ширины и высоты окна
+        self.width = 640
+        self.height = 480
+        self.root = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
+        self.state = 'menu'
+        self.result=None#итог игры
+        self.previous_state = 'menu'
+        self.count_flage=0
+        # настройки сетки Сапера
+        self.cell_size = 35
+        self.cols = 10
+        self.rows = 10
+        self.number_mins = 10
+        self.count_open = 0
+        self.board = None  # игровое поле
+        self.colors_root=choice([(24, 20, 20),(44, 53, 57),(24, 28, 36),(40, 40, 40),(12, 36, 97),(0, 49, 83),(0, 168, 204),"Forest Green"])#меняет цвет после каждой игры фона
+        #выносим расчет координат в динамическую функцию
+        self.recalculate_layout()
+        # создаем меню
+        self.menu = pygame_menu.Menu('Главное меню', 600, 400, theme=pygame_menu.themes.THEME_BLUE)
+        self.menu.add.button('Играть', self.standart_board)
+        self.menu.add.button('Создать свое поле', self.exclusive_game_board)
+        # характеристики для эксклюзивного поля
+        self.menu_2 = pygame_menu.Menu('Выбор характеристик', 600, 400, theme=pygame_menu.themes.THEME_BLUE)
+        #поля ввода (принимают только цифры благодаря input_type)
+        self.menu_2.add.text_input('Строк (rows): ', default=str(self.rows), maxchar=2, input_type=pygame_menu.locals.INPUT_INT, onchange=self.change_rows)
+        self.menu_2.add.text_input('Колонок (cols): ', default=str(self.cols), maxchar=2, input_type=pygame_menu.locals.INPUT_INT, onchange=self.change_cols)
+        self.menu_2.add.text_input('Мин (mines): ', default=str(self.number_mins), maxchar=3, input_type=pygame_menu.locals.INPUT_INT, onchange=self.change_mines)
+        #кнопка подтверждения и старта игры
+        self.menu_2.add.button('Запустить игру', self.standart_board)
+    def recalculate_layout(self):#распалагает картинку всегда по центру
+        self.width, self.height = self.root.get_size()
+        #динамическое центрирование поля под любой размер экрана
+        self.grid_offset_x = (self.width - (self.cols * self.cell_size)) // 2
+        self.grid_offset_y = (self.height - (self.rows * self.cell_size)) // 2
+        #динамическое центрирование кнопок (заново, свое поле, да, нет)
+        center_x = self.width // 2
+        center_y = self.height // 2
+        self.btn_restart_rect = pygame.Rect(center_x - 140, center_y + 20, 120, 40)
+        self.btn_exclusive_rect = pygame.Rect(center_x + 20, center_y + 20, 150, 40)
+        self.btn_yes_rect = pygame.Rect(center_x - 120, center_y + 20, 100, 40)
+        self.btn_no_rect = pygame.Rect(center_x + 20, center_y + 20, 100, 40)
+    def change_rows(self, value):#функция ввода своих параметров
+        try:
+            self.rows = max(2, int(value))#защита от слишком маленьких значений
+            self.recalculate_layout()
+        except ValueError:
+            pass
+    def change_cols(self, value):#функция ввода своих параметров
+        try:
+            self.cols = max(2, int(value))#защита от слишком маленьких значений
+            self.recalculate_layout()
+        except ValueError:
+            pass
+    def change_mines(self, value):#функция ввода своих параметров
+        try:
+            self.number_mins = max(1, int(value))#защита от слишком маленьких значений
+        except ValueError:
+            pass
+    def standart_board(self):#стандартное поле
+        self.reset_game_state()
+        self.recalculate_layout()
+        self.state = 'game'
+        self.count_open = 0
+        self.colors_root=choice([(24, 20, 20),(44, 53, 57),(24, 28, 36),(40, 40, 40),(12, 36, 97),(0, 49, 83),(0, 168, 204),"Forest Green"])
+    def exclusive_game_board(self):#экслюзивное поле
+        self.reset_game_state()
+        self.state = 'exclusive'
+        self.colors_root = choice([(24, 20, 20), (44, 53, 57), (24, 28, 36), (40, 40, 40), (12, 36, 97), (0, 49, 83), (0, 168, 204),"Forest Green"])
+    def trigger_exit_confirmation(self):#изменяет положение функции state
+        self.previous_state = self.state
+        self.state = 'confirm_exit'
+    def reset_game_state(self):#обнуление параметров
+        max_allowed_mines = max(1, (self.rows * self.cols) - 9)
+        self.count_flage = 0
+        if self.number_mins > max_allowed_mines:
+            self.number_mins = max_allowed_mines
+        self.board = [[{"mine": False, "open": False, "count": 0,"flag":False} for _ in range(self.cols)] for _ in range(self.rows)]
+    def win_move(self):#механика победы
+        self.state = "game_over"
+        self.result="ВЫ ВЫЙГРАЛИ"
+    def make_move(self):#механика нажатия клавишь
+        self.recalculate_layout()
+        mouse_pos = pygame.mouse.get_pos()
+        col = (mouse_pos[0] - self.grid_offset_x) // self.cell_size
+        row = (mouse_pos[1] - self.grid_offset_y) // self.cell_size
+        if 0 <= row < self.rows and 0 <= col < self.cols:
+            if self.board[row][col]["open"] or self.board[row][col]["flag"]:
+                return
+            self.board[row][col]["open"] = True
+            if self.board[row][col]["mine"]:
+                self.lose_move()
+                return  # остановка после поражения
+            if self.count_open != 1:
+                self.spawn_mines(row, col)
+            self.draw_zero_near(row, col)
+    def draw_board(self):#отрисовка игрового поля
+        self.recalculate_layout()
+        count=0
+        for r in range(self.rows):
+            for c in range(self.cols):
+                x = self.grid_offset_x + c * self.cell_size
+                y = self.grid_offset_y + r * self.cell_size
+                cell = self.board[r][c]
+                rect = pygame.Rect(x, y, self.cell_size, self.cell_size)
+                if cell["flag"] and cell["mine"]:
+                    count += 1
+                elif cell["open"] and not cell["mine"]:
+                    count+=1
+                if cell["open"]:
+                    pygame.draw.rect(self.root, (200, 200, 200), rect)
+                    pygame.draw.rect(self.root, (150, 150, 150), rect, 1)
+                    if cell["mine"]:
+                        self.draw_mines(x, y)
+                    elif cell["count"] > 0:
+                        font = pygame.font.SysFont('Arial', 18, bold=True)
+                        colors = [(0, 0, 255), (0, 128, 0), (255, 0, 0), (0, 0, 128), (128, 0, 0), (0, 128, 128),
+                                  (0, 0, 0), (128, 128, 128)]
+                        color = colors[min(cell["count"] - 1, len(colors) - 1)]
+                        text = font.render(str(cell["count"]), True, color)
+                        self.root.blit(text, text.get_rect(center=rect.center))
+                else:
+                    pygame.draw.rect(self.root, (100, 100, 100), rect)
+                    pygame.draw.rect(self.root, (50, 50, 50), rect, 1)
+                    if cell["flag"]:
+                        self.draw_beautiful_flag(r, c)
+                if count==self.rows*self.cols:
+                    self.win_move()
+    def draw_mines(self, x, y):#прорисовка мин
+        center_x = x + self.cell_size // 2
+        center_y = y + self.cell_size // 2
+        radius = self.cell_size // 4
+        # 1. фитиль
+        fuse_rect = pygame.Rect(center_x - 2, center_y - radius - 4, 4, 5)
+        pygame.draw.rect(self.root, (139, 69, 19), fuse_rect)  # коричневый цвет
+        # 2. тело бомбы (черный круг)
+        pygame.draw.circle(self.root, (0, 0, 0), (center_x, center_y), radius)
+        # 3. блик на бомбе для объема (маленький белый круг сбоку)
+        pygame.draw.circle(self.root, (255, 255, 255), (center_x - 3, center_y - 3), 2)
+        # 4. искры от фитиля (красный крестик чуть выше запала)
+        spark_x = center_x
+        spark_y = center_y - radius - 6
+        pygame.draw.line(self.root, (255, 0, 0), (spark_x - 3, spark_y), (spark_x + 3, spark_y), 2)
+        pygame.draw.line(self.root, (255, 0, 0), (spark_x, spark_y - 3), (spark_x, spark_y + 3), 2)
+    def draw_game_over(self,state):#экран проигрыша с затемнением
+        self.recalculate_layout()
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150)) #затемнение фона
+        self.root.blit(overlay, (0, 0))
+        if state=="ВЫ ВЫЙГРАЛИ":
+            colors_frame=(35, 55, 35)
+            colors_text=(106, 176, 76)
+        else:
+            colors_frame=(50, 30, 30)
+            colors_text =(255, 100, 100)
+        dialog_width, dialog_height = 400, 200
+        dialog_rect = pygame.Rect((self.width - dialog_width) // 2, (self.height - dialog_height) // 2, dialog_width,dialog_height)
+        pygame.draw.rect(self.root, colors_frame, dialog_rect, border_radius=10)#темно-красное окно
+        pygame.draw.rect(self.root,colors_text, dialog_rect, 2, border_radius=10) #красная рамка
+        font = pygame.font.SysFont('Arial', 24, bold=True)
+        text = font.render(state, True,colors_text)
+        text_rect = text.get_rect(center=(self.width // 2, dialog_rect.top + 50))
+        self.root.blit(text, text_rect)
+        #кнопка заново
+        shadow_rect = self.btn_restart_rect.move(0, 3)
+        pygame.draw.rect(self.root, (27, 94, 32), shadow_rect, border_radius=5)
+        pygame.draw.rect(self.root, (46, 125, 50), self.btn_restart_rect, border_radius=5)
+        pygame.draw.rect(self.root, (129, 199, 132), self.btn_restart_rect, 1, border_radius=5)
+        text_restart = font.render('Заново', True, (255, 255, 255))
+        self.root.blit(text_restart, text_restart.get_rect(center=self.btn_restart_rect.center))
+        # кнопка на создания своего поля
+        shadow_rect = self.btn_exclusive_rect.move(0, 6)
+        pygame.draw.rect(self.root, (33, 37, 45), shadow_rect, border_radius=5)
+        pygame.draw.rect(self.root, (53, 59, 72), self.btn_exclusive_rect, border_radius=5)
+        pygame.draw.rect(self.root, (149, 165, 166), self.btn_exclusive_rect, 1, border_radius=5)
+        text_menu = font.render('Свое поле', True, (255, 255, 255))
+        self.root.blit(text_menu, text_menu.get_rect(center=self.btn_exclusive_rect.center))
+    def draw_confirm_exit(self): #красивое окно закрытия
+        self.recalculate_layout()
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self.root.blit(overlay, (0, 0))
+        dialog_width, dialog_height = 400, 200
+        dialog_rect = pygame.Rect((self.width - dialog_width) // 2, (self.height - dialog_height) // 2, dialog_width,dialog_height)
+        pygame.draw.rect(self.root, (40, 40, 40), dialog_rect, border_radius=10)
+        pygame.draw.rect(self.root, (200, 200, 200), dialog_rect, 2, border_radius=10)
+        font = pygame.font.SysFont('Arial', 20, bold=True)
+        text = font.render('Вы уверены, что хотите выйти?', True, (255, 255, 255))
+        self.root.blit(text, text.get_rect(center=(self.width // 2, dialog_rect.top + 50)))
+        # Кнопка Да
+        pygame.draw.rect(self.root, (150, 50, 50), self.btn_yes_rect, border_radius=5)
+        text_yes = font.render('Да', True, (255, 255, 255))
+        self.root.blit(text_yes, text_yes.get_rect(center=self.btn_yes_rect.center))
+        # Кнопка Нет
+        pygame.draw.rect(self.root, (50, 150, 50), self.btn_no_rect, border_radius=5)
+        text_no = font.render('Нет', True, (255, 255, 255))
+        self.root.blit(text_no, text_no.get_rect(center=self.btn_no_rect.center))
+    def lose_move(self):  # механика луза
+        self.state = "game_over"
+        self.result = "ВЫ ПРОИГРАЛИ"
+        self.resultat_game()
+    def resultat_game(self):#результат игры
+        for striting in range(self.rows):
+            for pillar in range(self.cols):
+                if self.board[striting][pillar]["mine"] == True:
+                    self.board[striting][pillar]["open"] = True
+    def spawn_mines(self, clicked_row, clicked_col):  # спавн мин
+        count_mins = 0
+        while count_mins < self.number_mins:
+            row = choice([int(i) for i in range(0, self.rows)])
+            col = choice([int(i) for i in range(0, self.cols)])
+            is_near_click = abs(row - clicked_row) <= 1 and abs(col - clicked_col) <= 1
+            if not is_near_click and self.board[row][col]["mine"] == False:
+                self.board[row][col]["mine"] = True
+                count_mins += 1
+        self.spawn_numbers()
+        self.count_open = 1
+    def spawn_numbers(self):  # спавн номеров
+        for striting in range(self.rows):
+            for pillar in range(self.cols):
+                self.mines_near(striting, pillar)
+    def mines_near(self, row, col):  # опредение количества мин рядом
+        count_mines_near = 0
+        for striting in range(-1, 2):
+            for pillar in range(-1, 2):
+                if striting == 0 and pillar == 0:
+                    continue
+                if 0 <= row + striting < self.rows and 0 <= col + pillar < self.cols:
+                    if self.board[row + striting][col + pillar]["mine"] == True:
+                        count_mines_near += 1
+        self.board[row][col]["count"] = count_mines_near
+    def draw_beautiful_flag(self, cell_x, cell_y):#флажок
+        padding = self.cell_size * 0.15
+        w = self.cell_size - (padding * 2)
+        h = self.cell_size - (padding * 2)
+        field_offset_x = self.grid_offset_x
+        field_offset_y = self.grid_offset_y
+        x = cell_y * self.cell_size + field_offset_x + padding
+        y = cell_x * self.cell_size + field_offset_y + padding
+        red = (235, 47, 6)
+        dark_red = (184, 15, 10)
+        black = (47, 53, 66)
+        base_rect1 = pygame.Rect(x + w * 0.1, y + h * 0.85, w * 0.8, h * 0.15)
+        pygame.draw.rect(self.root, black, base_rect1, border_radius=2)
+        base_rect2 = pygame.Rect(x + w * 0.25, y + h * 0.72, w * 0.5, h * 0.15)
+        pygame.draw.rect(self.root, black, base_rect2, border_radius=1)
+        pole_rect = pygame.Rect(x + w * 0.45, y, w * 0.1, h * 0.75)
+        pygame.draw.rect(self.root, black, pole_rect)
+        top_left = (x + w * 0.45, y + h * 0.05)
+        bottom_left = (x + w * 0.45, y + h * 0.5)
+        tip = (x + w * 0.05, y + h * 0.27)
+        pygame.draw.polygon(self.root, red, [top_left, bottom_left, tip])
+        pygame.draw.line(self.root, dark_red, bottom_left, tip, max(1, int(w * 0.05)))
+    def draw_zero_near(self, row, col):  # открывает рядом находящиеся 0
+        if self.board[row][col]["count"] == 0:
+            for striting in range(-1, 2):
+                for pillar in range(-1, 2):
+                    if striting == 0 and pillar == 0:
+                        continue
+                    new_row = row + striting
+                    new_col = col + pillar
+                    if 0 <= new_row < self.rows and 0 <= new_col < self.cols:
+                        if not self.board[new_row][new_col]["open"] and not self.board[new_row][new_col]["mine"] and not self.board[new_row][new_col]["flag"]:
+                            self.board[new_row][new_col]["open"] = True
+                            self.draw_zero_near(new_row, new_col)
+    def run(self):#запускает цикл
+        pygame.display.set_caption('Сапер')
+        clock = pygame.time.Clock()
+        while True:
+            events = pygame.event.get()
+            for event in events:
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:  # правая мышь
+                    mouse_pos = pygame.mouse.get_pos()
+                    col = (mouse_pos[0] - self.grid_offset_x) // self.cell_size
+                    row = (mouse_pos[1] - self.grid_offset_y) // self.cell_size
+                    if 0 <= row < self.rows and 0 <= col < self.cols:
+                        if self.board[row][col]['flag']:
+                            self.board[row][col]['flag']=not self.board[row][col]['flag']
+                            self.draw_beautiful_flag(row, col)
+                            self.count_flage-=1
+                        elif self.board[row][col]['flag']==False and self.count_flage!=self.number_mins:
+                            self.board[row][col]['flag'] = not self.board[row][col]['flag']
+                            self.draw_beautiful_flag(row, col)
+                            self.count_flage+=1
+                        else:
+                            pass
+                if event.type == pygame.VIDEORESIZE:#Изменение экрана фиксируется
+                    self.root = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+                    self.recalculate_layout()
+                    menu_w = min(600, int(event.w * 0.9))
+                    menu_h = min(400, int(event.h * 0.9))
+                    self.menu.resize(menu_w, menu_h)
+                    self.menu_2.resize(menu_w, menu_h)
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:#левая мышь
+                    mouse_pos = pygame.mouse.get_pos()
+                    if self.state == 'game':
+                        self.make_move()
+                    elif self.state == 'game_over':
+                        if self.btn_restart_rect.collidepoint(mouse_pos):
+                            self.standart_board()
+                        elif self.btn_exclusive_rect.collidepoint(mouse_pos):
+                            self.state = 'menu'
+                    elif self.state == 'confirm_exit':
+                        if self.btn_yes_rect.collidepoint(mouse_pos):
+                            pygame.quit()
+                            sys.exit()
+                        elif self.btn_no_rect.collidepoint(mouse_pos):
+                            self.state = self.previous_state
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        if self.state in ['game', 'game_over', 'menu', 'exclusive']:
+                            self.trigger_exit_confirmation()
+            self.root.fill(self.colors_root)
+            if self.state == 'menu':
+                if self.menu.is_enabled():
+                    self.menu.update(events)
+                    self.menu.draw(self.root)
+            elif self.state == 'exclusive':
+                if self.menu_2.is_enabled():
+                    self.menu_2.update(events)
+                    self.menu_2.draw(self.root)
+            elif self.state == 'game':
+                self.draw_board()
+            elif self.state == 'game_over':
+                self.draw_board()
+                self.draw_game_over(self.result)
+            elif self.state == 'confirm_exit':
+                if self.previous_state == 'game':
+                    self.draw_board()
+                self.draw_confirm_exit()
+            pygame.display.flip()
+            clock.tick(60)#ограничение по fps
+if __name__ == '__main__':
+    game = Naval()
+    game.run()
