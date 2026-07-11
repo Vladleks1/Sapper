@@ -277,8 +277,7 @@ class Naval:
             events = pygame.event.get()
             for event in events:
                 if event.type == pygame.QUIT:
-                    pygame.quit()
-                    sys.exit()
+                    self.trigger_exit_confirmation()
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:  # правая мышь
                     mouse_pos = pygame.mouse.get_pos()
                     col = (mouse_pos[0] - self.grid_offset_x) // self.cell_size
@@ -292,8 +291,6 @@ class Naval:
                             self.board[row][col]['flag'] = not self.board[row][col]['flag']
                             self.draw_beautiful_flag(row, col)
                             self.count_flage+=1
-                        else:
-                            pass
                 if event.type == pygame.VIDEORESIZE:#Изменение экрана фиксируется
                     self.root = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
                     self.recalculate_layout()
@@ -301,6 +298,8 @@ class Naval:
                     menu_h = min(400, int(event.h * 0.9))
                     self.menu.resize(menu_w, menu_h)
                     self.menu_2.resize(menu_w, menu_h)
+                    if hasattr(self, 'menu_2'):
+                        self.menu_2.resize(menu_w, menu_h)
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:#левая мышь
                     mouse_pos = pygame.mouse.get_pos()
                     if self.state == 'game':
@@ -319,6 +318,13 @@ class Naval:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         if self.state in ['game', 'game_over', 'menu', 'exclusive']:
+                            self.trigger_exit_confirmation()
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        #если уже в окне подтверждения — возвращаемся назад
+                        if self.state == 'confirm_exit':
+                            self.state = self.previous_state
+                        elif self.state in ['game', 'game_over', 'menu', 'exclusive']:
                             self.trigger_exit_confirmation()
             self.root.fill(self.colors_root)
             if self.state == 'menu':
